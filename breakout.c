@@ -97,7 +97,6 @@ void set_speed(float speed) {
     float mag = norm2(ball.vx, ball.vy);
     ball.vx = ball.vx / mag * speed;
     ball.vy = ball.vy / mag * speed;
-    printf("set speed to %f %f\n", ball.vx, ball.vy);
 }
 
 
@@ -504,8 +503,6 @@ void ball_physics(void) {
                 float mag = norm2(vx, vy);
                 vx = vx / mag * speed;
                 vy = vy / mag * speed;
-
-                printf("blocks_left = %d\n", blocks_left);
 
                 if(blocks_left == 0) {
                     message = "YOU WIN";
