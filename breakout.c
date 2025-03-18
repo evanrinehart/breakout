@@ -55,13 +55,6 @@ struct ball {
 //struct ball ball = {50,WIN_H-pad_standoff,0,0,1};
 struct ball ball = {50,400,100,-400,0};
 
-struct ball balls[4] = {
-    {50, 400, 0, 0, 0},
-    {50, 400, 0, 0, 0},
-    {50, 400, 0, 0, 0},
-    {50, 400, 0, 0, 0},
-};
-
 struct block {
     int enable : 1;
     int color : 4;
@@ -76,11 +69,12 @@ struct block block_matrix[ROWNUM][COLNUM];
 #define SERVE_TIMER_MAX 180
 int game_mode = MODE_SERVE;
 int serve_timer = SERVE_TIMER_MAX;
-int num_lives = 10;
+int num_lives = 3;
 float ball_speed = 400;
 int break_counter = 0;
 int blocks_left = 0;
 int score = 0;
+int high_score = 0;
 const char* message = NULL;
 
 
@@ -99,6 +93,23 @@ void set_speed(float speed) {
     ball.vy = ball.vy / mag * speed;
 }
 
+
+int load_highscore() {
+    FILE *file = fopen("high.score", "r");
+    if(file == NULL) return 0;
+    int value = 0;
+    int n = fscanf(file, "%d", &value);
+    if(n < 1) value = 0;
+    fclose(file);
+    return value;
+}
+
+void save_highscore(int score) {
+    FILE *file = fopen("high.score", "w");
+    if(file == NULL) return;
+    fprintf(file, "%d\n", score);
+    fclose(file);
+}
 
 void audio_callback(void *buffer, unsigned int frames);
 void setup(void);
@@ -405,6 +416,7 @@ void ball_physics(void) {
     }
 
     if(ball.y > WIN_H + 2 * ball_radius) {
+        //printf("ball fall down\n");
         if(num_lives > 0) {
             game_mode = MODE_SERVE;
             serve_timer = SERVE_TIMER_MAX;
@@ -419,8 +431,23 @@ void ball_physics(void) {
         return;
     }
 
-    if(ball.x < 0) ball.x = 300;
-    if(ball.x > WIN_W) ball.x = 300;
+    if(ball.x < wall_thickness || ball.x > WIN_W - wall_thickness) {
+        ball.crushed = 1;
+        message = "FREE BALL";
+        game_mode = MODE_SERVE;
+        serve_timer = SERVE_TIMER_MAX;
+        ball.enable = 0;
+        return;
+    }
+
+    if(ball.y < 0) {
+        ball.crushed = 1;
+        message = "BALL M.I.A.";
+        game_mode = MODE_SERVE;
+        serve_timer = SERVE_TIMER_MAX;
+        ball.enable = 0;
+        return;
+    }
 
     float time_limit = 1.0 / 60;
     float x = ball.x;
@@ -497,8 +524,12 @@ void ball_physics(void) {
                 block_matrix[(int)blocks_hit[i].x][(int)blocks_hit[i].y].enable = 0;
                 break_counter += 1;
                 score += 1000;
+                if(score > high_score) {
+                    high_score = score;
+                    save_highscore(score);
+                }
                 blocks_left -= 1;
-                float speed = 100 * (break_counter / 5) + 400;
+                float speed = ( 50 * (break_counter / 5) + 400 ) ;
                 ball_speed = speed;
                 float mag = norm2(vx, vy);
                 vx = vx / mag * speed;
@@ -590,9 +621,9 @@ void setup_blocks() {
         }
     }
 
-    for(int i = 1; i < 14; i++) {
+    for(int i = 3; i < 14; i++) {
         for(int j = 1; j < COLNUM-1; j++) {
-            int n = 0*i + j;
+            int n = i + 0*j;
             block_matrix[i][j].color = n % 7 + 1;
             block_matrix[i][j].enable = 1;
             blocks_left += 1;
@@ -628,8 +659,6 @@ void setup() {
 }
 
 void mainloop_body(void) {
-    Vector2 mouse = GetMousePosition();
-
     // CTRL
     //player_control();
 
@@ -644,6 +673,7 @@ void mainloop_body(void) {
             game_mode = MODE_PLAY;
             ball.enable = 1;
             ball.crushed = 0;
+            message = NULL;
             ball.x = 400;
             ball.y = 400;
             ball.vx = (rand()%200) - 100;
@@ -667,16 +697,21 @@ void mainloop_body(void) {
     draw_pad();
     if(ball.enable) draw_ball(ball.x, ball.y);
 
-    /*
-    float speed = sqrt(pow(ball.vx, 2) + pow(ball.vy,2));
-    DrawText(TextFormat("vx = %f", ball.vx), 30, WIN_H - 100, 20, WHITE);
-    DrawText(TextFormat("vy = %f", ball.vy), 30, WIN_H -  80, 20, WHITE);
-    DrawText(TextFormat("v  = %f", speed),   30, WIN_H -  60, 20, WHITE);
-    */
+    //float speed = sqrt(pow(ball.vx, 2) + pow(ball.vy,2));
+    //DrawText(TextFormat("x = %f", ball.x), 30, WIN_H - 100, 20, WHITE);
+    //DrawText(TextFormat("y = %f", ball.y), 30, WIN_H -  80, 20, WHITE);
+    //DrawText(TextFormat("v  = %f", speed),   30, WIN_H -  60, 20, WHITE);
 
     for(int i = 0; i < num_lives; i++) {
         draw_ball(wall_thickness + 20 + 20*i, WIN_H - 20);
     }
+
+    {
+        const char *msg = TextFormat("HI-SCORE %d", high_score);
+        float width = MeasureText(msg, 20);
+        DrawText(msg, WIN_W - wall_thickness - width - 20, WIN_H - 45, 20, WHITE);
+    }
+
 
     {
         const char *msg = TextFormat("%d", score);
@@ -687,7 +722,7 @@ void mainloop_body(void) {
     if(serve_timer > 0) {
         const char *msg = TextFormat("%d", 1 + serve_timer / 60);
         float width = MeasureText(msg, 40);
-        DrawText(msg, 300 - width/2, 400, 40, WHITE);
+        DrawText(msg, 300 - width/2, 450, 40, WHITE);
     }
 
     if(message) {
@@ -714,6 +749,8 @@ int main(int argc, char * argv[]) {
     PlayAudioStream(stream);
 
     setup();
+
+    high_score = load_highscore();
 
     while(WindowShouldClose() == 0) mainloop_body();
 
