@@ -75,8 +75,11 @@ int break_counter = 0;
 int blocks_left = 0;
 int score = 0;
 int high_score = 0;
-const char* message = NULL;
+char level_message[64] = "LEVEL 1";
+const char* message = level_message;
 
+
+int level = 1;
 
 
 float norm(Vector2 v) {
@@ -153,6 +156,28 @@ Vector2 clamp_length(Vector2 v, float limit) {
     }
     else {
         return v;
+    }
+}
+
+void generate_level(int level) {
+    for(int i = 0; i < ROWNUM; i++) {
+        for(int j = 0; j < COLNUM; j++) {
+            block_matrix[i][j].enable = 0;
+        }
+    }
+
+    // column 0 to 13, 14 columns
+    // middle column is 6/7
+
+    for(int i = 3; i < 15; i++) {
+        for(int j = 1; j < COLNUM-1; j++) {
+            int k = j < 7 ? j : 14 - (j - 7);
+            int n = (level % 3)*i + (level % 7)*k;
+            if((2*i + 3*k) % (level + 1) == 0) continue;
+            block_matrix[i][j].color = n % 7 + 1;
+            block_matrix[i][j].enable = 1;
+            blocks_left += 1;
+        }
     }
 }
 
@@ -303,7 +328,13 @@ Vector2 quantize_velocity(Vector2 v) {
     float sign = angle < 0 ? -1 : 1;
     float alpha = fabs(angle) / PI * 180;
 
-    alpha = round((alpha - 30) / 10) * 10 + 30;
+    alpha = round((alpha - 30) / 20) * 20 + 30;
+
+    if(100 > alpha && alpha > 80) {
+        if(alpha > 90) alpha = 100;
+        if(alpha <= 90) alpha = 80;
+    }
+
     alpha *= sign;
     angle = alpha/180 * PI;
 
@@ -489,22 +520,31 @@ void ball_physics(void) {
             y += normal.y;
 
             if(hit_pad) {
-                Vector2 virtual_v = {vx, vy};
-                Vector2 rv = reflect(normal, virtual_v);
-                float bump = pad.xmotion * 10;
-                int limit = 200;
-                if(bump > limit) bump = limit;
-                if(bump < -limit) bump = -limit;
-//                printf("hit pad, xmotion = %f, bump = %f\n", pad.xmotion, bump);
-
-                float mag = sqrt(vx*vx + vy*vy);
-                vx = rv.x + bump;
-                /* correction and bounding pane */
-                vy = rv.y;
-                float mag2 = sqrt(vx*vx + vy*vy);
-                vx = (vx / mag2) * mag;
-                vy = (vy / mag2) * mag;
-
+                float pad_top = pad.y - pad.thickness/2;
+                if(y < pad_top) {
+                    float offset = x - pad.x;
+                    float yrefl = -vy;
+                    float mag = sqrt(vx*vx + vy*vy);
+                    vx = vx + 5*offset;
+                    vy = yrefl;
+                    float mag2 = sqrt(vx*vx + vy*vy);
+                    vx = (vx / mag2) * mag;
+                    vy = (vy / mag2) * mag;
+                }
+                else {
+                    Vector2 virtual_v = {vx, vy};
+                    Vector2 rv = reflect(normal, virtual_v);
+                    float bump = pad.xmotion * 10;
+                    int limit = 200;
+                    if(bump > limit) bump = limit;
+                    if(bump < -limit) bump = -limit;
+                    float mag = sqrt(vx*vx + vy*vy);
+                    vx = rv.x + bump;
+                    vy = rv.y;
+                    float mag2 = sqrt(vx*vx + vy*vy);
+                    vx = (vx / mag2) * mag;
+                    vy = (vy / mag2) * mag;
+                }
             }
             else {
                 float mag0 = sqrt(vx*vx + vy*vy);
@@ -529,16 +569,21 @@ void ball_physics(void) {
                     save_highscore(score);
                 }
                 blocks_left -= 1;
-                float speed = ( 50 * (break_counter / 5) + 400 ) ;
+                float speed = ( 25 * (break_counter / 5) + 400 ) ;
                 ball_speed = speed;
                 float mag = norm2(vx, vy);
                 vx = vx / mag * speed;
                 vy = vy / mag * speed;
 
                 if(blocks_left == 0) {
-                    message = "YOU WIN";
                     ball.enable = 0;
-                    game_mode = MODE_GAMEOVER;
+                    game_mode = MODE_SERVE;
+                    serve_timer = SERVE_TIMER_MAX;
+                    level += 1;
+                    sprintf(level_message, "LEVEL %d", level);
+                    message = level_message;
+                    generate_level(level);
+                    return;
                 }
             }
         }
@@ -611,27 +656,6 @@ void pad_physics(float delta_x) {
 }
 
 
-
-void setup_blocks() {
-
-    for(int i = 0; i < ROWNUM; i++) {
-        for(int j = 0; j < COLNUM; j++) {
-            block_matrix[i][j].enable = 0;
-            block_matrix[i][j].color = 0;
-        }
-    }
-
-    for(int i = 3; i < 14; i++) {
-        for(int j = 1; j < COLNUM-1; j++) {
-            int n = i + 0*j;
-            block_matrix[i][j].color = n % 7 + 1;
-            block_matrix[i][j].enable = 1;
-            blocks_left += 1;
-        }
-    }
-
-}
-
 void draw_blocks(){
     for(int i = 0; i < ROWNUM; i++) {
         for(int j = 0; j < COLNUM; j++) {
@@ -655,7 +679,7 @@ void draw_blocks(){
 }
 
 void setup() {
-    setup_blocks();
+    generate_level(1);
 }
 
 void mainloop_body(void) {
@@ -676,8 +700,11 @@ void mainloop_body(void) {
             message = NULL;
             ball.x = 400;
             ball.y = 400;
-            ball.vx = (rand()%200) - 100;
-            ball.vy = -400;
+            float angle = (rand()%20) + 40;
+            float theta = PI * angle / 180;
+            float sign = rand()%2 == 0 ? -1 : 1;
+            ball.vx = sign * 400 * cos(theta);
+            ball.vy = -400 * sin(theta);
             set_speed(ball_speed);
         }
     }
