@@ -118,6 +118,55 @@ void audio_callback(void *buffer, unsigned int frames);
 void setup(void);
 void mainloop_body(void);
 
+
+
+
+struct generator {
+    int active;
+    float t;
+    float freq;
+};
+
+struct generator generators[16];
+
+struct deadsound {
+    int active;
+    float t;
+};
+
+struct deadsound deadsound = {0, 0};
+
+struct music {
+    int active;
+    float t;
+};
+
+struct music music = {0, 0};
+
+void play_sound(float freq) {
+    for(int i = 0; i < 16; i++) {
+        if(generators[i].active) continue;
+        generators[i].active = 1;
+        generators[i].t = 0;
+        generators[i].freq = freq;
+        return;
+    }
+}
+
+void play_deadsound() {
+    deadsound.t = 0;
+    deadsound.active = 1;
+}
+
+void play_music() {
+    music.t = 0;
+    music.active = 1;
+}
+
+void setup_generators() {
+    for(int i = 0; i < 16; i++) generators[i].active = 0;
+}
+
 void audio_callback(void *buffer, unsigned int frames)
 {
     short *out = (short *)buffer;
@@ -125,6 +174,65 @@ void audio_callback(void *buffer, unsigned int frames)
     for (unsigned int i = 0; i < frames; i++)
     {
         out[i] = 0;
+
+        float t_max = 0.1;
+        float dt = 1.0 / 44100;
+
+        for(int g = 0; g < 16; g++) {
+            if(generators[g].active == 0) continue;
+
+            float t = generators[g].t;
+            float f = generators[g].freq;
+            float env = sin(t / t_max * PI);
+            float y = 0.2 * env * sin(2*PI*f*t);
+            generators[g].t += dt;
+            if(generators[g].t >= t_max) {
+                generators[g].active = 0;
+            }
+
+            out[i] += 32000 * y;
+        }
+
+        if(deadsound.active) {
+            float t_max = 0.3;
+            float t = deadsound.t;
+            float env = exp(-5*t / t_max);
+            float y = 0.4 * env * (-0.5 + (float)rand() / RAND_MAX);
+            deadsound.t += dt;
+            if(deadsound.t >= t_max) deadsound.active = 0;
+            out[i] += 32000 * y;
+        }
+
+        if(music.active) {
+            float t_max = 1;
+            float t = music.t;
+            int section = floor(8 * t / t_max);
+            if(section >= 7) section = 7;
+
+            float freqs[8] =
+                {880, 1.5*440, 440, 440,
+                440, 440, 440, 440};
+
+            float boost[8] =
+                {1, 1.2, 1.4, 1.4,
+                1.4, 1.4, 1.4, 1.4};
+
+            float y = 0.2 * sin(2*PI*freqs[section]*t);
+            y += 0.1 * sin(2*PI*(7 + freqs[section])*t);
+            y += 0.1 * sin(2*PI*(11 + freqs[section])*t);
+            y += 0.1 * sin(2*PI*(17 + freqs[section])*t);
+
+            //float env = section > 6 ? exp(-0.25*t / t_max) : 1.0;
+
+            y *= boost[section];
+
+            float z = 0.025;
+            if(t_max - t < z) y *= cos(0.5 * PI * (z - (t_max - t)) / z);
+
+            music.t += dt;
+            if(music.t >= t_max) music.active = 0;
+            out[i] += 32000 * y;
+        }
     }
 }
 
@@ -397,6 +505,7 @@ void neighborhood(float x, float y, Vector2 *norm_out, int *num_hits, Vector2 *b
                     blocks_hit[bi].x = a;
                     blocks_hit[bi].y = b;
                     bi++;
+                    play_sound(440);
                 }
             }
         }
@@ -407,6 +516,7 @@ void neighborhood(float x, float y, Vector2 *norm_out, int *num_hits, Vector2 *b
         normal.x += n.x;
         normal.y += n.y;
         (*num_hits) += 1;
+        play_sound(440 / 1.5);
     }
         
     if(test_ball_box(&ball, &left_wall)){
@@ -414,6 +524,7 @@ void neighborhood(float x, float y, Vector2 *norm_out, int *num_hits, Vector2 *b
         normal.x += n.x;
         normal.y += n.y;
         (*num_hits) += 1;
+        play_sound(440 / 1.5);
     }
 
     if(test_ball_box(&ball, &right_wall)){
@@ -421,6 +532,7 @@ void neighborhood(float x, float y, Vector2 *norm_out, int *num_hits, Vector2 *b
         normal.x += n.x;
         normal.y += n.y;
         (*num_hits) += 1;
+        play_sound(440 / 1.5);
     }
 
     struct box pad_box = {pad.x, pad.y, pad.length, pad.thickness};
@@ -431,6 +543,8 @@ void neighborhood(float x, float y, Vector2 *norm_out, int *num_hits, Vector2 *b
         normal.y += n.y;
         (*num_hits) += 1;
         *hit_pad = 1;
+
+        play_sound(220);
     }
 
     norm_out->x = normal.x;
@@ -453,11 +567,14 @@ void ball_physics(void) {
             serve_timer = SERVE_TIMER_MAX;
             num_lives -= 1;
             ball.enable = 0;
+
+            play_deadsound();
         }
         else {
             game_mode = MODE_GAMEOVER;
             message = "GAME OVER";
             ball.enable = 0;
+            play_music();
         }
         return;
     }
@@ -545,6 +662,7 @@ void ball_physics(void) {
                     vx = (vx / mag2) * mag;
                     vy = (vy / mag2) * mag;
                 }
+
             }
             else {
                 float mag0 = sqrt(vx*vx + vy*vy);
@@ -680,11 +798,16 @@ void draw_blocks(){
 
 void setup() {
     generate_level(1);
+    setup_generators();
 }
 
 void mainloop_body(void) {
     // CTRL
-    //player_control();
+
+    if(IsKeyPressed(KEY_B)) {
+        num_lives += 1;
+        //play_music();
+    }
 
     // FIZIKS
     ball_physics();
