@@ -1,9 +1,9 @@
-RAYLIB_VERSION = master
+RAYLIB_VERSION = 6.0
 RAYLIB_PATH = vendor/raylib/src
 RAYLIB_URL = https://github.com/raysan5/raylib.git
 
 breakout: raylib.h libraylib.a breakout.c
-	gcc -Wall -g -o breakout -I. breakout.c libraylib.a -lm
+	gcc -Wall -g -o breakout -I. breakout.c libraylib.a -lm -lX11
 
 libraylib.a : raylib
 	$(MAKE) -C raylib/src
