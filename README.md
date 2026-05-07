@@ -1,1 +1,1 @@
-![alt tag](/screenshot.png "breakout gameplay")
+![alt tag](/screenshot.png?raw=true "breakout gameplay")
